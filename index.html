@@ -258,13 +258,55 @@ async function api(path, opts){
 let currentTest = null;   // {id, name}
 
 async function loadTestQuestions(testId, code){
-  const data = await api('/api/test-questions',{method:'POST',body:JSON.stringify({test_id:testId, code:code||''})});
+  const data = await api('/api/test-questions',{method:'POST',body:JSON.stringify({
+    test_id:testId, code:code||'',
+    name: student?student.name:'', roll: student?student.roll:''})});
   currentTest = data.test;
   PUZZLES = data.questions;
   document.getElementById('countPuzzles').textContent = PUZZLES.length;
   loading.style.display='none';
   solved.clear(); document.getElementById('solvedCount').textContent=0;
   render();
+  showSubmitBar();
+}
+
+function showSubmitBar(){
+  let bar=document.getElementById('submitBar');
+  if(!bar){
+    bar=document.createElement('div'); bar.id='submitBar';
+    bar.style.cssText='margin:24px 0 10px;padding:16px;border:2px solid var(--ink);border-radius:4px;background:var(--paper-2);text-align:center';
+    document.querySelector('main .wrap').appendChild(bar);
+  }
+  bar.innerHTML='<p style="margin-bottom:10px;font-size:.95rem">When you are done, submit the test. <b>You can only submit once.</b></p>'+
+    '<button class="btn" id="submitBtn" style="font-size:14px;padding:11px 28px">Submit test</button>'+
+    '<div id="submitFb" style="font-family:\'Space Mono\',monospace;font-size:12.5px;margin-top:10px;min-height:16px"></div>';
+  document.getElementById('submitBtn').addEventListener('click',submitTest);
+}
+
+async function submitTest(){
+  if(!currentTest){ return; }
+  const fb=document.getElementById('submitFb');
+  if(!confirm('Submit the test now? You will not be able to change your answers or retake it.')) return;
+  const btn=document.getElementById('submitBtn'); btn.disabled=true; btn.textContent='Submitting…';
+  try{
+    const r=await api('/api/submit',{method:'POST',body:JSON.stringify({
+      test_id:currentTest.id, name:student?student.name:'', roll:student?student.roll:''})});
+    lockAfterSubmit(r.score);
+  }catch(e){
+    btn.disabled=false; btn.textContent='Submit test';
+    fb.style.color='var(--red)'; fb.textContent='Could not submit. Please try again.';
+  }
+}
+
+function lockAfterSubmit(score){
+  // disable all remaining inputs and show a done message
+  document.querySelectorAll('.answer-input').forEach(i=>i.disabled=true);
+  document.querySelectorAll('.mcq-opt input').forEach(i=>i.disabled=true);
+  document.querySelectorAll('.check').forEach(b=>{b.disabled=true;});
+  const bar=document.getElementById('submitBar');
+  bar.innerHTML='<p style="font-size:1.05rem;font-weight:600;color:var(--teal)">✓ Test submitted'+
+    (score!=null?(' — your score: '+score):'')+'.</p>'+
+    '<p style="font-size:.9rem;color:#5c5c50;margin-top:6px">You have completed this test. Thank you!</p>';
 }
 
 function render(){
@@ -465,6 +507,7 @@ async function enterTest(testId, code){
   }catch(e){
     if(e.status===403){ testFb.textContent='Wrong access code. Try again.'; }
     else if(e.status===423){ testFb.textContent='That test just closed. Pick another or refresh.'; }
+    else if(e.status===409){ testFb.textContent='You have already submitted this test. Ask your teacher to re-enable it if you need to retake.'; }
     else{ testFb.textContent='Could not load the test. Try again.'; }
   }
 }
