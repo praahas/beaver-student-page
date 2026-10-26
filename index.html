@@ -151,7 +151,7 @@
   <div class="wrap">
     <div class="eyebrow">Bebras-style · Computational Thinking</div>
     <h1>Beaver <em>Logic</em>.<br>Fifty puzzles<br>for the curious mind.</h1>
-    <p class="lede">No coding required — just clear thinking. Type your answer; it's checked for you, and the worked solution appears only when you get it right.</p>
+    <p class="lede">No coding required — just clear thinking. Choose a test, answer each question, and submit when you're done. Your score is released once your teacher ends the test.</p>
     <div class="hero-meta">
       <div><b id="countPuzzles">—</b><span>Puzzles</span></div>
       <div><b>5</b><span>Categories</span></div>
@@ -160,7 +160,7 @@
     </div>
     <p class="lock-note">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6a6a5c" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-      Answers are checked on the server — they're never in this page, so the source reveals nothing.
+      Your answers are saved automatically as you go. Correct answers are never in this page, so the source reveals nothing.
     </p>
     <p class="whoami hidden" id="whoami">
       Signed in as <b id="whoName"></b> (<span id="whoRoll"></span>). <button id="changeStudent">Not you?</button>
@@ -193,8 +193,8 @@
 </div></main>
 
 <footer><div class="wrap">
-  <p>Beaver Logic · 50 Bebras-style puzzles · answers checked and scores stored server-side.</p>
-  <p style="margin-top:10px">Type an answer and press <b>Check</b>. Close variants are accepted — spelling out a number, adding units, or minor wording differences are fine.</p>
+  <p>Beaver Logic · Bebras-style computational-thinking tests · graded server-side.</p>
+  <p style="margin-top:10px">Select an option or type your answer for each question — it saves automatically. Press <b>Submit test</b> when finished. For typed answers, close variants are accepted (spelling out a number, adding units, or minor wording differences).</p>
 </div></footer>
 
 <div class="reg-overlay" id="regOverlay">
@@ -327,6 +327,10 @@ async function checkResult(){
   }catch(e){ fb.style.color='var(--red)'; fb.textContent='Could not fetch your result. Try again.'; }
 }
 
+// NOTE: This page runs in EXAM mode — answers save silently (no per-question
+// "Check answer"), and scores release only after the teacher ends the test.
+// A future PRACTICE mode could reuse the /api/check endpoint (still in the
+// backend) and the .check / .solution styles to give instant feedback instead.
 const answered = new Set();  // question ids with a saved answer
 
 function updateAnsweredCount(){
