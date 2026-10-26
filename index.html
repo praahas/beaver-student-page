@@ -255,7 +255,9 @@ async function api(path, opts){
   return r.json();
 }
 
-let currentTest = null;   // {id, name}
+let currentTest = null;   // {id, name, is_open}
+let savedAnswers = {};    // {questionId: attempt} from the server
+let alreadySubmitted = false;
 
 async function loadTestQuestions(testId, code){
   const data = await api('/api/test-questions',{method:'POST',body:JSON.stringify({
@@ -263,11 +265,20 @@ async function loadTestQuestions(testId, code){
     name: student?student.name:'', roll: student?student.roll:''})});
   currentTest = data.test;
   PUZZLES = data.questions;
+  savedAnswers = data.answers || {};
+  alreadySubmitted = !!data.submitted;
   document.getElementById('countPuzzles').textContent = PUZZLES.length;
   loading.style.display='none';
-  solved.clear(); document.getElementById('solvedCount').textContent=0;
+  answered.clear();
+  Object.keys(savedAnswers).forEach(qid=>{ if((savedAnswers[qid]||'').trim()) answered.add(parseInt(qid)); });
   render();
-  showSubmitBar();
+  if(alreadySubmitted){
+    // returning after submit: lock inputs and show the result bar
+    showSubmitBar();
+    lockAfterSubmit();
+  } else {
+    showSubmitBar();
+  }
 }
 
 function showSubmitBar(){
@@ -393,18 +404,30 @@ function render(){
 
     function flagSaved(){ fb.className='feedback'; fb.style.color='#6a6a5c'; fb.textContent='Answer saved'; }
 
+    // pre-fill any previously saved answer (resume, or review after submit)
+    const prior = savedAnswers[String(p.id)];
     if(isMcq){
+      if(prior){
+        const r=el.querySelector('input[name="mcq'+p.id+'"][value="'+prior+'"]');
+        if(r){ r.checked=true; r.closest('.mcq-opt').classList.add('chosen'); }
+      }
       el.querySelectorAll('.mcq-opt').forEach(opt=>opt.addEventListener('click',()=>{
+        if(alreadySubmitted) return;
         el.querySelectorAll('.mcq-opt').forEach(o=>o.classList.remove('chosen'));
         opt.classList.add('chosen');
         const chosen=el.querySelector('input[name="mcq'+p.id+'"]:checked');
         if(chosen) saveAnswer(p.id, chosen.value).then(okv=>{ if(okv) flagSaved(); });
       }));
     } else {
+      if(prior) input.value = prior;
       let tmr=null;
       const doSave=()=>{ saveAnswer(p.id, input.value.trim()).then(okv=>{ if(okv) flagSaved(); }); };
       input.addEventListener('input',()=>{ clearTimeout(tmr); tmr=setTimeout(doSave,600); });
       input.addEventListener('blur',doSave);
+    }
+    if(alreadySubmitted){
+      if(input) input.disabled=true;
+      el.querySelectorAll('.mcq-opt input').forEach(i=>i.disabled=true);
     }
     list.appendChild(el);
   });
@@ -473,23 +496,35 @@ function closeTestPicker(){ testOverlay.classList.add('hidden'); }
 async function loadTestList(){
   testList.innerHTML='Loading…'; testFb.textContent=''; codeRow.style.display='none'; pendingTest=null;
   try{
-    const tests=await api('/api/tests');
+    const ident={name:student?student.name:'', roll:student?student.roll:''};
+    const [openTests, myTests] = await Promise.all([
+      api('/api/tests'),
+      api('/api/my-tests',{method:'POST',body:JSON.stringify(ident)})
+    ]);
+    // merge: open tests + tests I've already submitted (dedup by id; submitted flag wins)
+    const map=new Map();
+    openTests.forEach(t=>map.set(t.id,{...t, submitted:false}));
+    myTests.forEach(t=>{ const ex=map.get(t.id)||{}; map.set(t.id,{...ex, ...t}); });
+    const tests=[...map.values()];
     if(!tests.length){ testList.innerHTML='<span style="color:#6a6a5c;font-size:.9rem">No tests are open right now. Ask your teacher to start one, then press Refresh.</span>'; return; }
     testList.innerHTML='';
     tests.forEach(t=>{
       const b=document.createElement('button');
       b.className='reg-btn'; b.style.marginTop='0';
-      b.textContent=t.name+(t.needs_code?'  🔒':'');
+      let label=t.name;
+      if(t.submitted) label+='  ✓ submitted';
+      else if(t.needs_code) label+='  🔒';
+      b.textContent=label;
       b.addEventListener('click',()=>chooseTest(t));
       testList.appendChild(b);
     });
   }catch(e){ testList.innerHTML='<span style="color:#b23b2e">Could not load tests. Check the connection.</span>'; }
 }
 async function chooseTest(t){
-  if(t.needs_code){
+  if(t.needs_code && !t.submitted){
     pendingTest=t; codeRow.style.display='block'; testFb.textContent=''; setTimeout(()=>testCode.focus(),80);
   }else{
-    enterTest(t.id, '');
+    enterTest(t.id, '');   // submitted tests reopen without a code
   }
 }
 async function enterTest(testId, code){
