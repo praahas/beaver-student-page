@@ -156,7 +156,7 @@
       <div><b id="countPuzzles">—</b><span>Puzzles</span></div>
       <div><b>5</b><span>Categories</span></div>
       <div><b>3</b><span>Difficulty tiers</span></div>
-      <div><b id="solvedCount">0</b><span>Solved</span></div>
+      <div><b id="solvedCount">0</b><span>Answered</span></div>
     </div>
     <p class="lock-note">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6a6a5c" stroke-width="2"><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -289,24 +289,59 @@ async function submitTest(){
   if(!confirm('Submit the test now? You will not be able to change your answers or retake it.')) return;
   const btn=document.getElementById('submitBtn'); btn.disabled=true; btn.textContent='Submitting…';
   try{
-    const r=await api('/api/submit',{method:'POST',body:JSON.stringify({
+    await api('/api/submit',{method:'POST',body:JSON.stringify({
       test_id:currentTest.id, name:student?student.name:'', roll:student?student.roll:''})});
-    lockAfterSubmit(r.score);
+    lockAfterSubmit();
   }catch(e){
     btn.disabled=false; btn.textContent='Submit test';
     fb.style.color='var(--red)'; fb.textContent='Could not submit. Please try again.';
   }
 }
 
-function lockAfterSubmit(score){
-  // disable all remaining inputs and show a done message
+function lockAfterSubmit(){
   document.querySelectorAll('.answer-input').forEach(i=>i.disabled=true);
   document.querySelectorAll('.mcq-opt input').forEach(i=>i.disabled=true);
-  document.querySelectorAll('.check').forEach(b=>{b.disabled=true;});
   const bar=document.getElementById('submitBar');
-  bar.innerHTML='<p style="font-size:1.05rem;font-weight:600;color:var(--teal)">✓ Test submitted'+
-    (score!=null?(' — your score: '+score):'')+'.</p>'+
-    '<p style="font-size:.9rem;color:#5c5c50;margin-top:6px">You have completed this test. Thank you!</p>';
+  bar.innerHTML='<p style="font-size:1.05rem;font-weight:600;color:var(--teal)">✓ Test submitted.</p>'+
+    '<p style="font-size:.9rem;color:#5c5c50;margin:6px 0 12px">Your answers are recorded. Your score will be available once your teacher ends the test.</p>'+
+    '<button class="btn" id="resultBtn" style="font-size:14px;padding:10px 24px">Check my result</button>'+
+    '<div id="resultFb" style="font-family:\'Space Mono\',monospace;font-size:12.5px;margin-top:10px;min-height:16px"></div>';
+  document.getElementById('resultBtn').addEventListener('click',checkResult);
+}
+
+async function checkResult(){
+  const fb=document.getElementById('resultFb');
+  fb.style.color='#6a6a5c'; fb.textContent='Checking…';
+  try{
+    const r=await api('/api/my-result',{method:'POST',body:JSON.stringify({
+      test_id:currentTest.id, name:student?student.name:'', roll:student?student.roll:''})});
+    if(!r.submitted){ fb.style.color='var(--red)'; fb.textContent='No submission found.'; return; }
+    if(!r.released){
+      fb.style.color='#6a6a5c';
+      fb.textContent='The test is still in progress. Check back after your teacher ends it.';
+      return;
+    }
+    const bar=document.getElementById('submitBar');
+    bar.innerHTML='<p style="font-size:1.4rem;font-weight:700;color:var(--teal)">Your score: '+r.score+'</p>'+
+      '<p style="font-size:.92rem;color:#3a3b33;margin-top:8px">Correct: '+r.n_correct+' · Wrong: '+r.n_wrong+' · Not attempted: '+r.n_unattempted+'</p>';
+  }catch(e){ fb.style.color='var(--red)'; fb.textContent='Could not fetch your result. Try again.'; }
+}
+
+const answered = new Set();  // question ids with a saved answer
+
+function updateAnsweredCount(){
+  document.getElementById('solvedCount').textContent = answered.size;
+}
+
+async function saveAnswer(qid, val){
+  try{
+    await api('/api/answer',{method:'POST',body:JSON.stringify({
+      roll: student?student.roll:'', name: student?student.name:'',
+      test_id: currentTest?currentTest.id:null, question_id:qid, attempt:val})});
+    if(val && val.trim()){ answered.add(qid); } else { answered.delete(qid); }
+    updateAnsweredCount();
+    return true;
+  }catch(e){ return false; }
 }
 
 function render(){
@@ -316,21 +351,19 @@ function render(){
     if(filterLvl!=='all' && p.level!==filterLvl) return;
     shown++;
     const el=document.createElement('article');
-    el.className='puzzle cat-'+p.cat+(solved.has(p.id)?' is-solved':'');
+    el.className='puzzle cat-'+p.cat;
     const isMcq = p.kind==='mcq';
     const marksLabel = (p.marks && p.marks!=1) ? `<span class="tag tag-lvl">${p.marks} marks</span>` : '';
     let answerArea;
     if(isMcq){
       const opts = p.options||{};
       const rows = ['a','b','c','d'].filter(k=>opts[k]).map(k=>`
-        <label class="mcq-opt"><input type="radio" name="mcq${p.id}" value="${k}" ${solved.has(p.id)?'disabled':''}>
+        <label class="mcq-opt"><input type="radio" name="mcq${p.id}" value="${k}">
           <span class="lett">${k.toUpperCase()})</span> <span>${esc(opts[k])}</span></label>`).join('');
-      answerArea = `<div class="mcq-opts">${rows}</div>
-        <div class="answer-row"><button class="btn check">${solved.has(p.id)?'Unlocked':'Check answer'}</button></div>`;
+      answerArea = `<div class="mcq-opts">${rows}</div>`;
     } else {
       answerArea = `<div class="answer-row">
-          <input class="answer-input" type="text" placeholder="Type your answer…" aria-label="Your answer" ${solved.has(p.id)?'disabled':''}>
-          <button class="btn check">${solved.has(p.id)?'Unlocked':'Check'}</button>
+          <input class="answer-input" type="text" placeholder="Type your answer…" aria-label="Your answer" style="flex:1">
         </div>`;
     }
     el.innerHTML=`
@@ -342,7 +375,6 @@ function render(){
             <span class="tag tag-cat ${p.cat}">${esc(p.cat)}</span>
             <span class="tag tag-lvl">${esc(p.level)}</span>
             ${marksLabel}
-            <span class="solved-badge">Solved</span>
           </div>
         </div>
       </div>
@@ -350,69 +382,26 @@ function render(){
         <p class="q">${esc(p.q)}</p>
         ${p.image_url?`<img class="q-img" src="${esc(p.image_url)}" alt="question image" loading="lazy">`:''}
         ${answerArea}
-        <div class="feedback"></div>
-        <div class="solution"><div class="sol-inner"></div></div>
+        <div class="feedback" style="min-height:16px"></div>
       </div>`;
     const input=el.querySelector('.answer-input');
-    const btn=el.querySelector('.check');
     const fb=el.querySelector('.feedback');
-    const sol=el.querySelector('.solution');
-    const solInner=el.querySelector('.sol-inner');
-    let attempts=0;
+
+    function flagSaved(){ fb.className='feedback'; fb.style.color='#6a6a5c'; fb.textContent='Answer saved'; }
 
     if(isMcq){
       el.querySelectorAll('.mcq-opt').forEach(opt=>opt.addEventListener('click',()=>{
-        if(solved.has(p.id)) return;
         el.querySelectorAll('.mcq-opt').forEach(o=>o.classList.remove('chosen'));
         opt.classList.add('chosen');
-      }));
-    }
-
-    function reveal(data){
-      solInner.innerHTML=`<div class="sol-label">Answer</div>
-        <div class="answer">${esc(data.answer)}</div>
-        ${data.explanation?`<div class="why"><b>Why:</b> ${esc(data.explanation)}</div>`:''}`;
-      sol.classList.add('open');
-      el.classList.add('is-solved');
-      if(input) input.disabled=true;
-      el.querySelectorAll('.mcq-opt input').forEach(i=>i.disabled=true);
-      btn.textContent='Unlocked'; btn.disabled=true;
-      fb.className='feedback right';
-      fb.textContent = student ? 'Correct — solution unlocked and score recorded.' : 'Correct — solution unlocked.';
-      if(!solved.has(p.id)){ solved.add(p.id); document.getElementById('solvedCount').textContent=solved.size; }
-    }
-    async function submit(){
-      if(solved.has(p.id)) return;
-      let val='';
-      if(isMcq){
         const chosen=el.querySelector('input[name="mcq'+p.id+'"]:checked');
-        if(!chosen){ fb.className='feedback hint'; fb.textContent='Choose an option first.'; return; }
-        val=chosen.value;
-      } else {
-        val=input.value.trim();
-        if(!val){ fb.className='feedback hint'; fb.textContent='Type an answer first.'; return; }
-      }
-      btn.disabled=true; const old=btn.textContent; btn.textContent='…';
-      try{
-        const data=await api('/api/check',{method:'POST',body:JSON.stringify({
-          roll: student?student.roll:'', name: student?student.name:'',
-          test_id: currentTest?currentTest.id:null, question_id:p.id, attempt:val
-        })});
-        btn.disabled=false; btn.textContent=old;
-        if(data.correct){ reveal(data); }
-        else{
-          attempts++;
-          fb.className='feedback wrong';
-          fb.innerHTML='Not quite — try again. <span class="attempts">('+attempts+' attempt'+(attempts>1?'s':'')+')</span>';
-          if(input){ input.focus(); input.select(); }
-        }
-      }catch(e){
-        btn.disabled=false; btn.textContent=old;
-        fb.className='feedback wrong'; fb.textContent='Could not reach the server. Try again.';
-      }
+        if(chosen) saveAnswer(p.id, chosen.value).then(okv=>{ if(okv) flagSaved(); });
+      }));
+    } else {
+      let tmr=null;
+      const doSave=()=>{ saveAnswer(p.id, input.value.trim()).then(okv=>{ if(okv) flagSaved(); }); };
+      input.addEventListener('input',()=>{ clearTimeout(tmr); tmr=setTimeout(doSave,600); });
+      input.addEventListener('blur',doSave);
     }
-    btn.addEventListener('click',submit);
-    if(input) input.addEventListener('keydown',e=>{ if(e.key==='Enter') submit(); });
     list.appendChild(el);
   });
   empty.style.display=shown?'none':'block';
