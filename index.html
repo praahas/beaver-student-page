@@ -207,8 +207,25 @@
       <input type="text" id="regRoll" autocomplete="off" placeholder="e.g. 4CB23CS001"></div>
     <div class="reg-field"><label for="regSection">Section / class (optional)</label>
       <input type="text" id="regSection" autocomplete="off" placeholder="e.g. CS&D 3rd sem"></div>
-    <button class="reg-btn" id="regBtn">Start solving</button>
+    <button class="reg-btn" id="regBtn">Continue</button>
     <div class="reg-fb" id="regFb"></div>
+  </div>
+</div>
+
+<div class="reg-overlay hidden" id="testOverlay">
+  <div class="reg-card">
+    <h2>Choose a <em>test</em></h2>
+    <p>Pick the test your teacher asked you to take.</p>
+    <div id="testList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px"></div>
+    <div id="codeRow" style="display:none">
+      <div class="reg-field"><label for="testCode">Access code</label>
+        <input type="text" id="testCode" autocomplete="off" placeholder="Enter the code from your teacher"></div>
+      <button class="reg-btn" id="testEnterBtn">Enter test</button>
+    </div>
+    <div class="reg-fb" id="testFb"></div>
+    <div style="text-align:center;margin-top:10px">
+      <button id="testRefresh" style="background:none;border:none;color:#6a6a5c;text-decoration:underline;cursor:pointer;font-family:'Space Mono',monospace;font-size:11px">Refresh list</button>
+    </div>
   </div>
 </div>
 
@@ -238,19 +255,16 @@ async function api(path, opts){
   return r.json();
 }
 
-async function loadPuzzles(){
-  try{
-    PUZZLES = await api('/api/questions');
-    document.getElementById('countPuzzles').textContent = PUZZLES.length;
-    loading.style.display='none';
-    render();
-  }catch(e){
-    if(e.status===423){
-      loading.innerHTML = '<strong>The test is not open right now.</strong><br>Please wait for your teacher to start it, then refresh this page.';
-    }else{
-      loading.innerHTML = 'Could not reach the puzzle server.<br>Check that the backend is running and the API URL is correct.';
-    }
-  }
+let currentTest = null;   // {id, name}
+
+async function loadTestQuestions(testId, code){
+  const data = await api('/api/test-questions',{method:'POST',body:JSON.stringify({test_id:testId, code:code||''})});
+  currentTest = data.test;
+  PUZZLES = data.questions;
+  document.getElementById('countPuzzles').textContent = PUZZLES.length;
+  loading.style.display='none';
+  solved.clear(); document.getElementById('solvedCount').textContent=0;
+  render();
 }
 
 function render(){
@@ -340,7 +354,7 @@ function render(){
       try{
         const data=await api('/api/check',{method:'POST',body:JSON.stringify({
           roll: student?student.roll:'', name: student?student.name:'',
-          question_id:p.id, attempt:val
+          test_id: currentTest?currentTest.id:null, question_id:p.id, attempt:val
         })});
         btn.disabled=false; btn.textContent=old;
         if(data.correct){ reveal(data); }
@@ -400,6 +414,7 @@ regBtn.addEventListener('click',async ()=>{
     await api('/api/register',{method:'POST',body:JSON.stringify({name,roll,section})});
     student={name,roll,section};
     closeReg(); showWhoami();
+    openTestPicker();
   }catch(e){
     regFb.textContent='Could not reach the server. Check the connection and try again.';
   }finally{ regBtn.disabled=false; regBtn.textContent=old; }
@@ -409,8 +424,58 @@ document.getElementById('changeStudent').addEventListener('click',()=>{
   regName.value=''; regRoll.value=''; regSection.value=''; regFb.textContent=''; openReg();
 });
 
+// ---- test picker ----
+const testOverlay=document.getElementById('testOverlay');
+const testList=document.getElementById('testList');
+const codeRow=document.getElementById('codeRow');
+const testCode=document.getElementById('testCode');
+const testFb=document.getElementById('testFb');
+let pendingTest=null;
+
+function openTestPicker(){ testOverlay.classList.remove('hidden'); loadTestList(); }
+function closeTestPicker(){ testOverlay.classList.add('hidden'); }
+
+async function loadTestList(){
+  testList.innerHTML='Loading…'; testFb.textContent=''; codeRow.style.display='none'; pendingTest=null;
+  try{
+    const tests=await api('/api/tests');
+    if(!tests.length){ testList.innerHTML='<span style="color:#6a6a5c;font-size:.9rem">No tests are open right now. Ask your teacher to start one, then press Refresh.</span>'; return; }
+    testList.innerHTML='';
+    tests.forEach(t=>{
+      const b=document.createElement('button');
+      b.className='reg-btn'; b.style.marginTop='0';
+      b.textContent=t.name+(t.needs_code?'  🔒':'');
+      b.addEventListener('click',()=>chooseTest(t));
+      testList.appendChild(b);
+    });
+  }catch(e){ testList.innerHTML='<span style="color:#b23b2e">Could not load tests. Check the connection.</span>'; }
+}
+async function chooseTest(t){
+  if(t.needs_code){
+    pendingTest=t; codeRow.style.display='block'; testFb.textContent=''; setTimeout(()=>testCode.focus(),80);
+  }else{
+    enterTest(t.id, '');
+  }
+}
+async function enterTest(testId, code){
+  testFb.textContent='Loading test…';
+  try{
+    await loadTestQuestions(testId, code);
+    closeTestPicker();
+  }catch(e){
+    if(e.status===403){ testFb.textContent='Wrong access code. Try again.'; }
+    else if(e.status===423){ testFb.textContent='That test just closed. Pick another or refresh.'; }
+    else{ testFb.textContent='Could not load the test. Try again.'; }
+  }
+}
+document.getElementById('testEnterBtn').addEventListener('click',()=>{
+  if(pendingTest) enterTest(pendingTest.id, testCode.value.trim());
+});
+testCode.addEventListener('keydown',e=>{ if(e.key==='Enter') document.getElementById('testEnterBtn').click(); });
+document.getElementById('testRefresh').addEventListener('click',loadTestList);
+
 openReg();
-loadPuzzles();
+loading.innerHTML='Register and choose a test to begin.';
 </script>
 </body>
 </html>
