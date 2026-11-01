@@ -139,7 +139,29 @@
   .reg-btn:hover{background:transparent;color:var(--ink)}
   .reg-btn:disabled{opacity:.5;cursor:not-allowed}
   .reg-fb{font-family:"Space Mono",monospace;font-size:12px;color:var(--red);min-height:16px;margin-top:8px}
+  /* paged exam UI */
+  .palette{display:flex;flex-wrap:wrap;gap:7px;margin:18px 0 20px;padding:14px;border:2px solid var(--ink);
+    border-radius:4px;background:var(--paper-2)}
+  .pal-btn{font-family:"Space Mono",monospace;font-size:13px;width:38px;height:38px;border:1.5px solid var(--ink);
+    background:#fff;color:var(--ink);border-radius:3px;cursor:pointer;transition:all .1s;font-weight:700}
+  .pal-btn:hover{background:var(--paper)}
+  .pal-btn.answered{background:var(--teal);color:#fff;border-color:var(--teal)}
+  .pal-btn.current{outline:3px solid var(--amber);outline-offset:1px}
+  .navbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:20px}
+  .progress-label{font-family:"Space Mono",monospace;font-size:13px;color:#5c5c50}
+  .btn.nav-prev,.btn.nav-next{min-width:110px}
+  .btn:disabled{opacity:.4;cursor:not-allowed}
+  .review-card{background:var(--paper);border:2px solid var(--ink);border-radius:4px;padding:22px;
+    box-shadow:5px 5px 0 var(--shadow)}
+  .review-grid{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0}
+  .review-item{display:flex;align-items:center;gap:8px;padding:8px 12px;border:1.5px solid var(--line);
+    border-radius:3px;cursor:pointer;font-size:.9rem;background:#fff}
+  .review-item:hover{border-color:var(--ink)}
+  .review-item .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+  .review-item.done .dot{background:var(--teal)}
+  .review-item.todo .dot{background:#b9b3a1}
   @media(max-width:560px){
+    .pal-btn{width:34px;height:34px;font-size:12px}
     .p-num{font-size:1.6rem;min-width:46px;height:46px}
     .controls .wrap{gap:7px}.ctl-label{width:100%;margin-bottom:2px}
   }
@@ -168,28 +190,36 @@
   </div>
 </header>
 
-<nav class="controls">
+<nav class="controls" id="filterNav" style="display:none">
   <div class="wrap">
-    <span class="ctl-label">Topic</span>
     <button class="chip cat-all" data-cat="all" aria-pressed="true">All</button>
-    <button class="chip cat-Algorithms" data-cat="Algorithms" aria-pressed="false">Algorithms</button>
-    <button class="chip cat-Logic" data-cat="Logic" aria-pressed="false">Logic</button>
-    <button class="chip cat-Patterns" data-cat="Patterns" aria-pressed="false">Patterns</button>
-    <button class="chip cat-Data" data-cat="Data" aria-pressed="false">Data</button>
-    <button class="chip cat-Graphs" data-cat="Graphs" aria-pressed="false">Graphs</button>
-    <span class="spacer"></span>
-    <span class="ctl-label">Level</span>
     <button class="chip lvl" data-lvl="all" aria-pressed="true">All</button>
-    <button class="chip lvl" data-lvl="Easy" aria-pressed="false">Easy</button>
-    <button class="chip lvl" data-lvl="Medium" aria-pressed="false">Medium</button>
-    <button class="chip lvl" data-lvl="Hard" aria-pressed="false">Hard</button>
   </div>
 </nav>
 
 <main><div class="wrap">
   <div class="loading" id="loading">Loading puzzles…</div>
-  <div id="list"></div>
-  <div class="empty" id="empty">No puzzles match those filters.</div>
+
+  <div id="examArea" style="display:none">
+    <!-- palette -->
+    <div id="palette" class="palette"></div>
+    <!-- current question slot -->
+    <div id="list"></div>
+    <!-- navigation bar -->
+    <div id="navBar" class="navbar">
+      <button class="btn nav-prev" id="prevBtn">‹ Previous</button>
+      <span id="progressLabel" class="progress-label"></span>
+      <button class="btn nav-next" id="nextBtn">Next ›</button>
+    </div>
+    <div style="text-align:center;margin-top:14px">
+      <button class="btn" id="reviewBtn" style="background:var(--teal);border-color:var(--teal)">Review &amp; submit</button>
+    </div>
+  </div>
+
+  <!-- review screen -->
+  <div id="reviewArea" style="display:none"></div>
+
+  <div class="empty" id="empty"></div>
 </div></main>
 
 <footer><div class="wrap">
@@ -273,51 +303,46 @@ async function loadTestQuestions(testId, code){
   Object.keys(savedAnswers).forEach(qid=>{ if((savedAnswers[qid]||'').trim()) answered.add(parseInt(qid)); });
   render();
   if(alreadySubmitted){
-    // returning after submit: lock inputs and show the result bar
-    showSubmitBar();
-    lockAfterSubmit();
-  } else {
-    showSubmitBar();
+    showSubmittedScreen();
   }
 }
 
-function showSubmitBar(){
-  let bar=document.getElementById('submitBar');
-  if(!bar){
-    bar=document.createElement('div'); bar.id='submitBar';
-    bar.style.cssText='margin:24px 0 10px;padding:16px;border:2px solid var(--ink);border-radius:4px;background:var(--paper-2);text-align:center';
-    document.querySelector('main .wrap').appendChild(bar);
-  }
-  bar.innerHTML='<p style="margin-bottom:10px;font-size:.95rem">When you are done, submit the test. <b>You can only submit once.</b></p>'+
-    '<button class="btn" id="submitBtn" style="font-size:14px;padding:11px 28px">Submit test</button>'+
-    '<div id="submitFb" style="font-family:\'Space Mono\',monospace;font-size:12.5px;margin-top:10px;min-height:16px"></div>';
-  document.getElementById('submitBtn').addEventListener('click',submitTest);
+// a submitted student sees a result screen instead of the question pager
+function showSubmittedScreen(){
+  document.getElementById('examArea').style.display='none';
+  const ra=document.getElementById('reviewArea');
+  ra.style.display='block';
+  ra.innerHTML='<div class="review-card" style="text-align:center">'+
+    '<p style="font-size:1.1rem;font-weight:600;color:var(--teal)">✓ Test submitted.</p>'+
+    '<p style="font-size:.92rem;color:#5c5c50;margin:8px 0 14px">Your answers are recorded. Your score will be available once your teacher ends the test.</p>'+
+    '<button class="btn" id="resultBtn" style="font-size:14px;padding:10px 24px">Check my result</button>'+
+    '<div style="margin-top:12px"><button class="btn" id="reviewAnswersBtn" style="background:transparent;color:var(--ink)">Review my answers</button></div>'+
+    '<div id="resultFb" style="font-family:\'Space Mono\',monospace;font-size:12.5px;margin-top:12px;min-height:16px"></div>'+
+    '</div>';
+  document.getElementById('resultBtn').addEventListener('click',checkResult);
+  document.getElementById('reviewAnswersBtn').addEventListener('click',()=>{
+    // let them page through their locked answers; hide Review&submit button
+    document.getElementById('examArea').style.display='block';
+    ra.style.display='none';
+    document.getElementById('reviewBtn').style.display='none';
+    showPage(0);
+  });
 }
 
 async function submitTest(){
   if(!currentTest){ return; }
   const fb=document.getElementById('submitFb');
   if(!confirm('Submit the test now? You will not be able to change your answers or retake it.')) return;
-  const btn=document.getElementById('submitBtn'); btn.disabled=true; btn.textContent='Submitting…';
+  const btn=document.getElementById('finalSubmit'); if(btn){ btn.disabled=true; btn.textContent='Submitting…'; }
   try{
     await api('/api/submit',{method:'POST',body:JSON.stringify({
       test_id:currentTest.id, name:student?student.name:'', roll:student?student.roll:''})});
-    lockAfterSubmit();
+    alreadySubmitted=true;
+    showSubmittedScreen();
   }catch(e){
-    btn.disabled=false; btn.textContent='Submit test';
-    fb.style.color='var(--red)'; fb.textContent='Could not submit. Please try again.';
+    if(btn){ btn.disabled=false; btn.textContent='Submit test'; }
+    if(fb){ fb.style.color='var(--red)'; fb.textContent='Could not submit. Please try again.'; }
   }
-}
-
-function lockAfterSubmit(){
-  document.querySelectorAll('.answer-input').forEach(i=>i.disabled=true);
-  document.querySelectorAll('.mcq-opt input').forEach(i=>i.disabled=true);
-  const bar=document.getElementById('submitBar');
-  bar.innerHTML='<p style="font-size:1.05rem;font-weight:600;color:var(--teal)">✓ Test submitted.</p>'+
-    '<p style="font-size:.9rem;color:#5c5c50;margin:6px 0 12px">Your answers are recorded. Your score will be available once your teacher ends the test.</p>'+
-    '<button class="btn" id="resultBtn" style="font-size:14px;padding:10px 24px">Check my result</button>'+
-    '<div id="resultFb" style="font-family:\'Space Mono\',monospace;font-size:12.5px;margin-top:10px;min-height:16px"></div>';
-  document.getElementById('resultBtn').addEventListener('click',checkResult);
 }
 
 async function checkResult(){
@@ -332,9 +357,10 @@ async function checkResult(){
       fb.textContent='The test is still in progress. Check back after your teacher ends it.';
       return;
     }
-    const bar=document.getElementById('submitBar');
-    bar.innerHTML='<p style="font-size:1.4rem;font-weight:700;color:var(--teal)">Your score: '+r.score+'</p>'+
-      '<p style="font-size:.92rem;color:#3a3b33;margin-top:8px">Correct: '+r.n_correct+' · Wrong: '+r.n_wrong+' · Not attempted: '+r.n_unattempted+'</p>';
+    const ra=document.getElementById('reviewArea');
+    ra.innerHTML='<div class="review-card" style="text-align:center">'+
+      '<p style="font-size:1.4rem;font-weight:700;color:var(--teal)">Your score: '+r.score+'</p>'+
+      '<p style="font-size:.92rem;color:#3a3b33;margin-top:8px">Correct: '+r.n_correct+' · Wrong: '+r.n_wrong+' · Not attempted: '+r.n_unattempted+'</p></div>';
   }catch(e){ fb.style.color='var(--red)'; fb.textContent='Could not fetch your result. Try again.'; }
 }
 
@@ -359,80 +385,150 @@ async function saveAnswer(qid, val){
   }catch(e){ return false; }
 }
 
-function render(){
-  list.innerHTML=''; let shown=0;
-  PUZZLES.forEach((p,idx)=>{
-    if(filterCat!=='all' && p.cat!==filterCat) return;
-    if(filterLvl!=='all' && p.level!==filterLvl) return;
-    shown++;
-    const pos = idx+1;   // position within the test (test order), not the bank id
-    const el=document.createElement('article');
-    el.className='puzzle cat-'+p.cat;
-    const isMcq = p.kind==='mcq';
-    const marksLabel = (p.marks && p.marks!=1) ? `<span class="tag tag-lvl">${p.marks} marks</span>` : '';
-    let answerArea;
-    if(isMcq){
-      const opts = p.options||{};
-      const rows = ['a','b','c','d'].filter(k=>opts[k]).map(k=>`
-        <label class="mcq-opt"><input type="radio" name="mcq${p.id}" value="${k}">
-          <span class="lett">${k.toUpperCase()})</span> <span>${esc(opts[k])}</span></label>`).join('');
-      answerArea = `<div class="mcq-opts">${rows}</div>`;
-    } else {
-      answerArea = `<div class="answer-row">
-          <input class="answer-input" type="text" placeholder="Type your answer…" aria-label="Your answer" style="flex:1">
-        </div>`;
-    }
-    el.innerHTML=`
-      <div class="p-head">
-        <div class="p-num">${pos}</div>
-        <div class="p-headtext">
-          <div class="p-title">${esc(p.title||('Question '+pos))}</div>
-          <div class="p-tags">
-            <span class="tag tag-cat ${p.cat}">${esc(p.cat)}</span>
-            <span class="tag tag-lvl">${esc(p.level)}</span>
-            ${marksLabel}
-          </div>
+let pageEls = [];     // one built question element per PUZZLES entry (test order)
+let curPage = 0;
+
+function buildQuestionEl(p, idx){
+  const pos = idx+1;
+  const el=document.createElement('article');
+  el.className='puzzle cat-'+p.cat;
+  const isMcq = p.kind==='mcq';
+  const marksLabel = (p.marks && p.marks!=1) ? `<span class="tag tag-lvl">${p.marks} marks</span>` : '';
+  let answerArea;
+  if(isMcq){
+    const opts = p.options||{};
+    const rows = ['a','b','c','d'].filter(k=>opts[k]).map(k=>`
+      <label class="mcq-opt"><input type="radio" name="mcq${p.id}" value="${k}">
+        <span class="lett">${k.toUpperCase()})</span> <span>${esc(opts[k])}</span></label>`).join('');
+    answerArea = `<div class="mcq-opts">${rows}</div>`;
+  } else {
+    answerArea = `<div class="answer-row">
+        <input class="answer-input" type="text" placeholder="Type your answer…" aria-label="Your answer" style="flex:1">
+      </div>`;
+  }
+  el.innerHTML=`
+    <div class="p-head">
+      <div class="p-num">${pos}</div>
+      <div class="p-headtext">
+        <div class="p-title">${esc(p.title||('Question '+pos))}</div>
+        <div class="p-tags">
+          <span class="tag tag-cat ${p.cat}">${esc(p.cat)}</span>
+          <span class="tag tag-lvl">${esc(p.level)}</span>
+          ${marksLabel}
         </div>
       </div>
-      <div class="p-body">
-        <p class="q">${esc(p.q)}</p>
-        ${p.image_url?`<img class="q-img" src="${esc(p.image_url)}" alt="question image" loading="lazy">`:''}
-        ${answerArea}
-        <div class="feedback" style="min-height:16px"></div>
-      </div>`;
-    const input=el.querySelector('.answer-input');
-    const fb=el.querySelector('.feedback');
+    </div>
+    <div class="p-body">
+      <p class="q">${esc(p.q)}</p>
+      ${p.image_url?`<img class="q-img" src="${esc(p.image_url)}" alt="question image" loading="lazy">`:''}
+      ${answerArea}
+      <div class="feedback" style="min-height:16px"></div>
+    </div>`;
+  const input=el.querySelector('.answer-input');
+  const fb=el.querySelector('.feedback');
+  function flagSaved(){ fb.className='feedback'; fb.style.color='#6a6a5c'; fb.textContent='Answer saved'; }
 
-    function flagSaved(){ fb.className='feedback'; fb.style.color='#6a6a5c'; fb.textContent='Answer saved'; }
+  const prior = savedAnswers[String(p.id)];
+  if(isMcq){
+    if(prior){
+      const r=el.querySelector('input[name="mcq'+p.id+'"][value="'+prior+'"]');
+      if(r){ r.checked=true; r.closest('.mcq-opt').classList.add('chosen'); }
+    }
+    el.querySelectorAll('.mcq-opt').forEach(opt=>opt.addEventListener('click',()=>{
+      if(alreadySubmitted) return;
+      el.querySelectorAll('.mcq-opt').forEach(o=>o.classList.remove('chosen'));
+      opt.classList.add('chosen');
+      const chosen=el.querySelector('input[name="mcq'+p.id+'"]:checked');
+      if(chosen) saveAnswer(p.id, chosen.value).then(okv=>{ if(okv){ flagSaved(); buildPalette(); } });
+    }));
+  } else {
+    if(prior) input.value = prior;
+    let tmr=null;
+    const doSave=()=>{ saveAnswer(p.id, input.value.trim()).then(okv=>{ if(okv){ flagSaved(); buildPalette(); } }); };
+    input.addEventListener('input',()=>{ clearTimeout(tmr); tmr=setTimeout(doSave,600); });
+    input.addEventListener('blur',doSave);
+  }
+  if(alreadySubmitted){
+    if(input) input.disabled=true;
+    el.querySelectorAll('.mcq-opt input').forEach(i=>i.disabled=true);
+  }
+  return el;
+}
 
-    // pre-fill any previously saved answer (resume, or review after submit)
-    const prior = savedAnswers[String(p.id)];
-    if(isMcq){
-      if(prior){
-        const r=el.querySelector('input[name="mcq'+p.id+'"][value="'+prior+'"]');
-        if(r){ r.checked=true; r.closest('.mcq-opt').classList.add('chosen'); }
-      }
-      el.querySelectorAll('.mcq-opt').forEach(opt=>opt.addEventListener('click',()=>{
-        if(alreadySubmitted) return;
-        el.querySelectorAll('.mcq-opt').forEach(o=>o.classList.remove('chosen'));
-        opt.classList.add('chosen');
-        const chosen=el.querySelector('input[name="mcq'+p.id+'"]:checked');
-        if(chosen) saveAnswer(p.id, chosen.value).then(okv=>{ if(okv) flagSaved(); });
-      }));
-    } else {
-      if(prior) input.value = prior;
-      let tmr=null;
-      const doSave=()=>{ saveAnswer(p.id, input.value.trim()).then(okv=>{ if(okv) flagSaved(); }); };
-      input.addEventListener('input',()=>{ clearTimeout(tmr); tmr=setTimeout(doSave,600); });
-      input.addEventListener('blur',doSave);
-    }
-    if(alreadySubmitted){
-      if(input) input.disabled=true;
-      el.querySelectorAll('.mcq-opt input').forEach(i=>i.disabled=true);
-    }
-    list.appendChild(el);
+function render(){
+  document.getElementById('examArea').style.display='block';
+  document.getElementById('reviewArea').style.display='none';
+  pageEls = PUZZLES.map((p,idx)=>buildQuestionEl(p,idx));
+  curPage = 0;
+  buildPalette();
+  showPage(0);
+}
+
+function isAnswered(idx){
+  const p = PUZZLES[idx];
+  return answered.has(p.id);
+}
+
+function buildPalette(){
+  const pal=document.getElementById('palette'); pal.innerHTML='';
+  PUZZLES.forEach((p,idx)=>{
+    const b=document.createElement('button');
+    b.className='pal-btn'+(isAnswered(idx)?' answered':'')+(idx===curPage?' current':'');
+    b.textContent=idx+1;
+    b.title=isAnswered(idx)?'Answered':'Not answered';
+    b.addEventListener('click',()=>showPage(idx));
+    pal.appendChild(b);
   });
-  empty.style.display=shown?'none':'block';
+}
+
+function showPage(idx){
+  if(idx<0 || idx>=PUZZLES.length) return;
+  curPage=idx;
+  const slot=document.getElementById('list');
+  slot.innerHTML='';
+  slot.appendChild(pageEls[idx]);
+  document.getElementById('progressLabel').textContent='Question '+(idx+1)+' of '+PUZZLES.length;
+  document.getElementById('prevBtn').disabled = idx===0;
+  document.getElementById('nextBtn').disabled = idx===PUZZLES.length-1;
+  buildPalette();
+  // no scroll-to-top: the question swaps in place so the Next button stays under the cursor
+}
+
+function showReview(){
+  document.getElementById('examArea').style.display='none';
+  const ra=document.getElementById('reviewArea');
+  ra.style.display='block';
+  const answeredCount=PUZZLES.filter((p,i)=>isAnswered(i)).length;
+  let items='';
+  PUZZLES.forEach((p,idx)=>{
+    const done=isAnswered(idx);
+    items+='<div class="review-item '+(done?'done':'todo')+'" data-i="'+idx+'">'+
+      '<span class="dot"></span> Q'+(idx+1)+' · '+(done?'answered':'not answered')+'</div>';
+  });
+  ra.innerHTML='<div class="review-card">'+
+    '<h2 style="font-family:Fraunces,serif;font-size:1.6rem;margin-bottom:6px">Review your answers</h2>'+
+    '<p style="color:#3a3b33;margin-bottom:4px">You have answered <b>'+answeredCount+'</b> of <b>'+PUZZLES.length+'</b> questions.</p>'+
+    (answeredCount<PUZZLES.length?'<p style="color:var(--amber-deep);font-size:.9rem">Unanswered questions will be marked as not attempted (and may carry a penalty). Click any question below to go back to it.</p>':'')+
+    '<div class="review-grid">'+items+'</div>'+
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">'+
+      '<button class="btn" id="backToQ" style="background:transparent;color:var(--ink)">‹ Back to questions</button>'+
+      '<button class="btn" id="finalSubmit" style="background:var(--teal);border-color:var(--teal)">Submit test</button>'+
+    '</div>'+
+    '<div id="submitFb" style="font-family:\'Space Mono\',monospace;font-size:12.5px;margin-top:12px;min-height:16px"></div>'+
+    '</div>';
+  ra.querySelectorAll('.review-item').forEach(it=>it.addEventListener('click',()=>{
+    const i=parseInt(it.dataset.i);
+    document.getElementById('examArea').style.display='block';
+    ra.style.display='none';
+    showPage(i);
+  }));
+  document.getElementById('backToQ').addEventListener('click',()=>{
+    document.getElementById('examArea').style.display='block';
+    ra.style.display='none';
+    showPage(curPage);
+  });
+  document.getElementById('finalSubmit').addEventListener('click',submitTest);
+  window.scrollTo({top:0,behavior:'smooth'});
 }
 
 document.querySelectorAll('.chip[data-cat]').forEach(c=>c.addEventListener('click',()=>{
@@ -545,6 +641,11 @@ document.getElementById('testEnterBtn').addEventListener('click',()=>{
 });
 testCode.addEventListener('keydown',e=>{ if(e.key==='Enter') document.getElementById('testEnterBtn').click(); });
 document.getElementById('testRefresh').addEventListener('click',loadTestList);
+
+// paged navigation buttons
+document.getElementById('prevBtn').addEventListener('click',()=>showPage(curPage-1));
+document.getElementById('nextBtn').addEventListener('click',()=>showPage(curPage+1));
+document.getElementById('reviewBtn').addEventListener('click',showReview);
 
 openReg();
 loading.innerHTML='Register and choose a test to begin.';
