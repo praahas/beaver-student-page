@@ -140,6 +140,13 @@
   .reg-btn:disabled{opacity:.5;cursor:not-allowed}
   .reg-fb{font-family:"Space Mono",monospace;font-size:12px;color:var(--red);min-height:16px;margin-top:8px}
   /* paged exam UI */
+  .timer-bar{position:sticky;top:0;z-index:30;display:flex;align-items:center;justify-content:center;gap:12px;
+    padding:12px;margin:0 0 16px;border:2px solid var(--ink);border-radius:4px;background:var(--ink);color:var(--paper)}
+  .timer-label{font-family:"Space Mono",monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;opacity:.8}
+  .timer-clock{font-family:"Space Mono",monospace;font-size:1.5rem;font-weight:700;letter-spacing:.04em}
+  .timer-bar.warning{background:var(--amber-deep)}
+  .timer-bar.danger{background:var(--red);animation:tpulse 1s infinite}
+  @keyframes tpulse{0%,100%{opacity:1}50%{opacity:.75}}
   .palette{display:flex;flex-wrap:wrap;gap:7px;margin:18px 0 20px;padding:14px;border:2px solid var(--ink);
     border-radius:4px;background:var(--paper-2)}
   .pal-btn{font-family:"Space Mono",monospace;font-size:13px;width:38px;height:38px;border:1.5px solid var(--ink);
@@ -201,6 +208,11 @@
   <div class="loading" id="loading">Loading puzzles…</div>
 
   <div id="examArea" style="display:none">
+    <!-- countdown timer -->
+    <div id="timerBar" class="timer-bar" style="display:none">
+      <span class="timer-label">Time remaining</span>
+      <span id="timerClock" class="timer-clock">--:--</span>
+    </div>
     <!-- palette -->
     <div id="palette" class="palette"></div>
     <!-- current question slot -->
@@ -303,8 +315,70 @@ async function loadTestQuestions(testId, code){
   Object.keys(savedAnswers).forEach(qid=>{ if((savedAnswers[qid]||'').trim()) answered.add(parseInt(qid)); });
   render();
   if(alreadySubmitted){
+    stopTimer();
     showSubmittedScreen();
+  } else {
+    startTimer();
   }
+}
+
+// ---- countdown timer ----
+let timerInterval=null;
+let deadlineMs=null;      // absolute deadline in terms of client clock
+let autoSubmitting=false;
+
+function startTimer(){
+  stopTimer();
+  const bar=document.getElementById('timerBar');
+  const endIso=currentTest && currentTest.end_at;
+  if(!endIso){ bar.style.display='none'; return; }  // untimed test
+  // align to server clock: offset = client_now - server_now
+  const serverNow = currentTest.server_now ? Date.parse(currentTest.server_now) : Date.now();
+  const offset = Date.now() - serverNow;
+  deadlineMs = Date.parse(endIso) + offset;
+  bar.style.display='flex';
+  tickTimer();
+  timerInterval=setInterval(tickTimer,1000);
+}
+function stopTimer(){ if(timerInterval){ clearInterval(timerInterval); timerInterval=null; } }
+
+function tickTimer(){
+  const bar=document.getElementById('timerBar');
+  const clock=document.getElementById('timerClock');
+  let remain=Math.floor((deadlineMs - Date.now())/1000);
+  if(remain<=0){
+    clock.textContent='00:00';
+    bar.classList.add('danger');
+    stopTimer();
+    autoSubmit();
+    return;
+  }
+  const h=Math.floor(remain/3600), m=Math.floor((remain%3600)/60), s=remain%60;
+  const pad=n=>String(n).padStart(2,'0');
+  clock.textContent = h>0 ? (pad(h)+':'+pad(m)+':'+pad(s)) : (pad(m)+':'+pad(s));
+  bar.classList.toggle('warning', remain<=300 && remain>60);   // last 5 min
+  bar.classList.toggle('danger', remain<=60);                   // last 1 min
+}
+
+async function autoSubmit(){
+  if(autoSubmitting || alreadySubmitted) return;
+  autoSubmitting=true;
+  try{
+    await api('/api/submit',{method:'POST',body:JSON.stringify({
+      test_id:currentTest.id, name:student?student.name:'', roll:student?student.roll:''})});
+  }catch(e){}
+  alreadySubmitted=true;
+  // show a time's-up message then the submitted screen
+  const ra=document.getElementById('reviewArea');
+  document.getElementById('examArea').style.display='none';
+  ra.style.display='block';
+  ra.innerHTML='<div class="review-card" style="text-align:center">'+
+    '<p style="font-size:1.15rem;font-weight:700;color:var(--red)">⏱ Time is up</p>'+
+    '<p style="font-size:.95rem;color:#3a3b33;margin:8px 0 14px">Your test was submitted automatically with the answers you had saved.</p>'+
+    '<button class="btn" id="resultBtn" style="font-size:14px;padding:10px 24px">Check my result</button>'+
+    '<div id="resultFb" style="font-family:\'Space Mono\',monospace;font-size:12.5px;margin-top:12px;min-height:16px"></div>'+
+    '</div>';
+  document.getElementById('resultBtn').addEventListener('click',checkResult);
 }
 
 // a submitted student sees a result screen instead of the question pager
@@ -338,6 +412,7 @@ async function submitTest(){
     await api('/api/submit',{method:'POST',body:JSON.stringify({
       test_id:currentTest.id, name:student?student.name:'', roll:student?student.roll:''})});
     alreadySubmitted=true;
+    stopTimer();
     showSubmittedScreen();
   }catch(e){
     if(btn){ btn.disabled=false; btn.textContent='Submit test'; }
